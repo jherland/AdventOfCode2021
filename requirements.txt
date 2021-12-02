@@ -1,2 +1,3 @@
+black
 flake8
 git+git://github.com/python/mypy.git

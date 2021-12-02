@@ -1,6 +1,7 @@
 #!/bin/sh
 
-set -e
+set -e -x
 
 # mypy
+black . --diff --color --check
 flake8
