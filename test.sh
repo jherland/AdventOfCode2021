@@ -4,4 +4,4 @@ set -e -x
 
 # mypy
 black . --diff --color --check
-flake8
+pflake8
