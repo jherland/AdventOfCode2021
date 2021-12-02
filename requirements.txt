@@ -1,2 +1,2 @@
 flake8
-mypy
+git+git://github.com/python/mypy.git
