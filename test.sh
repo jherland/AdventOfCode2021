@@ -2,5 +2,5 @@
 
 set -e
 
-mypy
+# mypy
 flake8
