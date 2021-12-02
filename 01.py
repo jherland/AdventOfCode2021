@@ -1,4 +1,4 @@
-with open('01.input') as f:
+with open("01.input") as f:
     nums = [int(line) for line in f]
 
 # Part 1: How many measurements are larger than the previous measurement?
