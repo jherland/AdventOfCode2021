@@ -1,3 +1,4 @@
 black
 git+git://github.com/python/mypy.git
 pyproject-flake8
+rich
