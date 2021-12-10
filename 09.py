@@ -68,7 +68,7 @@ def find_basins(hmap):
         nbors = {pos}
         while nbors:
             pos = nbors.pop()
-            assert not pos in processed
+            assert pos not in processed
             ret[pos] = hmap[pos]
             processed.add(pos)
             for npos, nh in hmap.neighbors(pos):
