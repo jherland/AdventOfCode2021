@@ -11,9 +11,14 @@ def parse_levels(lines):
 def adjacent(pos):
     y, x = pos
     return [
-        (y - 1, x - 1), (y - 1, x), (y - 1, x + 1),
-        (y, x - 1), (y, x + 1),
-        (y + 1, x - 1), (y + 1, x), (y + 1, x + 1),
+        (y - 1, x - 1),
+        (y - 1, x),
+        (y - 1, x + 1),
+        (y, x - 1),
+        (y, x + 1),
+        (y + 1, x - 1),
+        (y + 1, x),
+        (y + 1, x + 1),
     ]
 
 
@@ -58,4 +63,3 @@ while flashed < len(levels):
     levels, flashed = next_turn(levels)
     gen += 1
 print(gen)
-
