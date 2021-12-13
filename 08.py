@@ -1,4 +1,7 @@
 from dataclasses import dataclass
+from typing import Any, Iterable, TypeVar
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -6,58 +9,58 @@ class Segments:
     letters: str
 
     @classmethod
-    def parse(cls, word):
+    def parse(cls, word: str) -> Segments:
         return cls("".join(sorted(word)))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<{self.letters}>"
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.letters)
 
-    def __and__(self, other):
+    def __and__(self, other: Segments) -> Segments:
         return self.__class__(
             "".join(sorted(set(self.letters) & set(other.letters)))
         )
 
-    def __or__(self, other):
+    def __or__(self, other: Segments) -> Segments:
         return self.__class__(
             "".join(sorted(set(self.letters) | set(other.letters)))
         )
 
-    def __xor__(self, other):
+    def __xor__(self, other: Segments) -> Segments:
         return self.__class__(
             "".join(sorted(set(self.letters) ^ set(other.letters)))
         )
 
 
-def parse_line(line):
-    def parse_words(words):
+def parse_line(line: str) -> tuple[set[Segments], list[Segments]]:
+    def parse_words(words: str) -> Iterable[Segments]:
         return map(Segments.parse, words.split())
 
     ten, four = line.split("|")
     return set(parse_words(ten)), list(parse_words(four))
 
 
-class TwoWayDict(dict):
-    def __setitem__(self, key, value):
+class TwoWayDict(dict[Any, Any]):  # type: ignore
+    def __setitem__(self, key: Any, value: Any) -> None:  # type: ignore
         assert key not in self
         assert value not in self
         dict.__setitem__(self, key, value)
         dict.__setitem__(self, value, key)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return dict.__len__(self) // 2
 
 
-def only(gen):
+def only(gen: Iterable[T]) -> T:
     one_item_list = list(gen)
     assert len(one_item_list) == 1
     return one_item_list[0]
 
 
-def decipher(ten_words):
-    by_len = {}
+def decipher(ten_words: set[Segments]) -> TwoWayDict:
+    by_len: dict[int, set[Segments]] = {}
     for item in ten_words:
         by_len.setdefault(len(item), set()).add(item)
     assert len(by_len[2]) == 1  # 1

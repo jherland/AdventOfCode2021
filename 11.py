@@ -1,14 +1,17 @@
 from contextlib import suppress
 from rich import print
+from typing import Iterable, Iterator
+
+Position = tuple[int, int]
 
 
-def parse_levels(lines):
+def parse_levels(lines: Iterable[str]) -> Iterator[tuple[Position, int]]:
     for y, line in enumerate(lines):
         for x, char in enumerate(line.rstrip()):
             yield (y, x), int(char)
 
 
-def adjacent(pos):
+def adjacent(pos: Position) -> list[Position]:
     y, x = pos
     return [
         (y - 1, x - 1),
@@ -22,10 +25,10 @@ def adjacent(pos):
     ]
 
 
-def next_turn(levels):
+def next_turn(levels: dict[Position, int]) -> tuple[dict[Position, int], int]:
     ret = {pos: level + 1 for pos, level in levels.items()}
     flash = {pos for pos, level in ret.items() if level > 9}
-    flashed = set()
+    flashed: set[Position] = set()
     while flash - flashed:
         for pos in flash - flashed:
             for npos in adjacent(pos):
@@ -40,7 +43,7 @@ def next_turn(levels):
     return ret, len(flashed)
 
 
-def lprint(levels):
+def lprint(levels: dict[Position, int]) -> None:
     for y in range(10):
         for x in range(10):
             print(levels[(y, x)], end="")

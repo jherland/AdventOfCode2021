@@ -1,30 +1,40 @@
 from functools import partial
+from typing import Callable, Iterator
+
+Bits = tuple[int, ...]
+Candidates = list[Bits]
+BitFilter = Callable[[Bits], bool]
 
 
-def parse_line(line):
+def parse_line(line: str) -> Bits:
     return tuple(int(bit) for bit in line.strip())
 
 
-def most_common_bit(candidates, pos):
+def most_common_bit(candidates: Candidates, pos: int) -> int:
     # return 1 if number of 1s and 0s are exactly equal.
     return int(sum(c[pos] for c in candidates) * 2 >= len(candidates))
 
 
-def common_bit_filter(pos, candidates, least=False):
+def common_bit_filter(
+    pos: int, candidates: Candidates, least: bool = False
+) -> BitFilter:
     common_bit = most_common_bit(candidates, pos)
     if least:
         common_bit = 1 - common_bit
     return lambda c: c[pos] == common_bit
 
 
-def progressively_filter(candidates, filter_factories):
+def progressively_filter(
+    candidates: Candidates,
+    filter_factories: Iterator[Callable[[Candidates], BitFilter]],
+) -> Bits:
     while len(candidates) > 1:
         filter = next(filter_factories)(candidates)
         candidates = [c for c in candidates if filter(c)]
     return candidates[0]
 
 
-def as_int(bits):
+def as_int(bits: Bits) -> int:
     return int("".join(map(str, bits)), 2)
 
 

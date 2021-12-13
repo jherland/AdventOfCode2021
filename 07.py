@@ -1,16 +1,23 @@
-def linear_cost(steps):
+from typing import Callable
+
+
+def linear_cost(steps: int) -> int:
     return steps
 
 
-def triangular_cost(steps):
+def triangular_cost(steps: int) -> int:
     return steps * (steps + 1) // 2
 
 
-def fuel_used(crabs, position, cost_func):
+def fuel_used(
+    crabs: list[int], position: int, cost_func: Callable[[int], int]
+) -> int:
     return sum(cost_func(abs(c - position)) for c in crabs)
 
 
-def minimize_total_fuel_usage(crabs, cost_func):
+def minimize_total_fuel_usage(
+    crabs: list[int], cost_func: Callable[[int], int]
+) -> int:
     return min(
         fuel_used(crabs, p, cost_func)
         for p in range(min(crabs), max(crabs) + 1)

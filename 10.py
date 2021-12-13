@@ -6,7 +6,7 @@ open_brackets = {"(": ")", "[": "]", "{": "}", "<": ">"}
 close_brackets = {b: a for a, b in open_brackets.items()}
 
 
-def parse_line(line):
+def parse_line(line: str) -> tuple[list[str], list[str]]:
     symbols = list(line)
     stack = []
     while symbols:
@@ -27,7 +27,7 @@ def parse_line(line):
     return symbols, stack
 
 
-def completion_score(stack):
+def completion_score(stack: list[str]) -> int:
     completion = [open_brackets[c] for c in reversed(stack)]
     score = 0
     char_score = {")": 1, "]": 2, "}": 3, ">": 4}

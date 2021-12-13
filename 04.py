@@ -1,13 +1,13 @@
 from contextlib import suppress
-
 from rich import print
+from typing import Iterator
 
 
 class Board:
     Rows, Cols = 5, 5
 
     @classmethod
-    def parse(cls, lines):
+    def parse(cls, lines: Iterator[str]) -> Board:
         rows = []
         for r in range(cls.Rows):
             line = next(lines)
@@ -17,20 +17,20 @@ class Board:
         return cls(rows)
 
     @classmethod
-    def parse_multiple(cls, lines):
+    def parse_multiple(cls, lines: Iterator[str]) -> Iterator[Board]:
         with suppress(StopIteration):
             while True:
                 assert next(lines).strip() == ""
                 yield cls.parse(lines)
 
-    def __init__(self, rows):
+    def __init__(self, rows: list[list[int]]):
         assert len(rows) == self.Rows
         assert all(len(row) == self.Cols for row in rows)
-        self.rows = rows
-        self.seen = set()
-        self.last_draw = None
+        self.rows: list[list[int]] = rows
+        self.seen: set[int] = set()
+        self.last_draw: int | None = None
 
-    def __str__(self):
+    def __str__(self) -> str:
         ret = []
         for row in self.rows:
             for n in row:
@@ -42,23 +42,24 @@ class Board:
         return "".join(ret)
 
     @property
-    def cols(self):
+    def cols(self) -> list[list[int]]:
         return [list(col) for col in zip(*self.rows)]
 
     @property
-    def nums(self):
+    def nums(self) -> set[int]:
         return set(n for row in self.rows for n in row)
 
-    def draw(self, n):
+    def draw(self, n: int) -> None:
         self.seen.add(n)
         self.last_draw = n
 
-    def has_bingo(self):
+    def has_bingo(self) -> bool:
         return any(
             all(n in self.seen for n in line) for line in self.rows + self.cols
         )
 
-    def score(self):
+    def score(self) -> int:
+        assert self.last_draw is not None
         return sum(self.nums - self.seen) * self.last_draw
 
 
