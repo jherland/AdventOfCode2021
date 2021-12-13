@@ -1,3 +1,4 @@
+from __future__ import annotations
 from contextlib import suppress
 from rich import print
 from typing import Iterator
