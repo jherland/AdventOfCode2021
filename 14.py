@@ -42,7 +42,7 @@ class Polymer:
         return self.__class__(self.reactions, new_polymer, new_last)
 
     def react_n(self, n: int) -> Polymer:
-        return reduce(lambda s, _: self.__class__.react(s), range(n), self)
+        return reduce(lambda s, _: s.react(), range(n), self)
 
     def most_common_elements(self) -> list[tuple[str, int]]:
         elements: Counter[str] = Counter()
