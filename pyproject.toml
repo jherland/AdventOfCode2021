@@ -7,6 +7,7 @@ include = '\.pyi?$'
 filename = "*.py"
 exclude = ".??*"
 max-line-length = 80
+ignore = "E203,W503"
 
 [tool.mypy]
 files = "*.py"
