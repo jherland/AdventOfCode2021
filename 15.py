@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 from collections import defaultdict
 from contextlib import suppress
 from itertools import chain
+from rich import print
 import sys
-from typing import Dict, Iterable, Iterator, Tuple
+from typing import Iterable, Iterator
 
-Position = Tuple[int, int]
+Position = tuple[int, int]
 inf = sys.maxsize
 
 
-class Map(Dict[Position, int]):
-    def __init__(self, iterable: Iterable[Tuple[Position, int]] = ()):
+class Map(dict[Position, int]):
+    def __init__(self, iterable: Iterable[tuple[Position, int]] = ()):
         super().__init__()
         self.height = 0
         self.width = 0
@@ -30,14 +33,14 @@ class Map(Dict[Position, int]):
             ret.append("\n")
         return "".join(ret)
 
-    def adjacent(self, pos: Position) -> Iterator[Tuple[Position, int]]:
+    def adjacent(self, pos: Position) -> Iterator[tuple[Position, int]]:
         y, x = pos
         for npos in [(y, x + 1), (y + 1, x), (y, x - 1), (y - 1, x)]:
             with suppress(KeyError):
                 yield npos, self[npos]
 
-    def multiply(self, my: int, mx: int) -> "Map":
-        def repeated(ny: int, nx: int) -> Iterator[Tuple[Position, int]]:
+    def multiply(self, my: int, mx: int) -> Map:
+        def repeated(ny: int, nx: int) -> Iterator[tuple[Position, int]]:
             """Copy of 'self' with offsets applied and values updated."""
             dy = self.height * ny
             dx = self.width * nx
@@ -68,9 +71,9 @@ def find_min_path(map: Map, start: Position, end: Position) -> int:
         return 2 * manhattan_dist(pos, end)
 
     open_set = {start}
-    distance: Dict[Position, int] = defaultdict(lambda: inf)
+    distance: dict[Position, int] = defaultdict(lambda: inf)
     distance[start] = 0
-    best_guess: Dict[Position, int] = defaultdict(lambda: inf)
+    best_guess: dict[Position, int] = defaultdict(lambda: inf)
     best_guess[start] = guess(start)
     while open_set:
         current = min(open_set, key=lambda pos: best_guess[pos])
