@@ -7,6 +7,8 @@ from operator import eq, gt, lt
 from rich import print
 from typing import Callable, Iterable, Iterator
 
+ValueCalculator = Callable[[Iterable[int]], int]
+
 
 @dataclass
 class Packet:
@@ -25,7 +27,7 @@ class Packet:
         self.value = int(value, 2)
         return bits
 
-    def parse_operator(self, func, bits: str) -> str:
+    def parse_operator(self, func: ValueCalculator, bits: str) -> str:
         if bits[0] == "0":  # length type ID: 0
             length = int(bits[1:16], 2)
             self.subs = self.parse_all(bits[16 : 16 + length])
@@ -41,7 +43,7 @@ class Packet:
         return bits
 
     @staticmethod
-    def binary_operator(bin_op: Callable[[int, int], int]):
+    def binary_operator(bin_op: Callable[[int, int], int]) -> ValueCalculator:
         def op_func(args: Iterable[int]) -> int:
             lhs, rhs = list(args)
             return int(bin_op(lhs, rhs))
@@ -51,7 +53,7 @@ class Packet:
     @classmethod
     def parse_one(cls, bits: str) -> tuple[Packet, str]:
         packet = cls(int(bits[:3], 2), int(bits[3:6], 2))
-        types = {
+        types: dict[int, Callable[[str], str]] = {
             0: partial(packet.parse_operator, sum),
             1: partial(packet.parse_operator, prod),
             2: partial(packet.parse_operator, min),
