@@ -1,3 +1,4 @@
+from collections import defaultdict
 from contextlib import suppress
 from itertools import chain
 import sys
@@ -55,22 +56,33 @@ class Map(Dict[Position, int]):
         return ret
 
 
+def manhattan_dist(a: Position, b: Position) -> int:
+    ay, ax = a
+    by, bx = b
+    return abs(bx - ax) + abs(by - ay)
+
+
 def find_min_path(map: Map, start: Position, end: Position) -> int:
-    # Dijkstra's algorithm
-    distance: Dict[Position, int] = dict.fromkeys(map.keys(), inf)
+    # A* algorithm
+    def guess(pos: Position) -> int:
+        return 2 * manhattan_dist(pos, end)
+
+    open_set = {start}
+    distance: Dict[Position, int] = defaultdict(lambda: inf)
     distance[start] = 0
-    unvisited = set(distance.keys())
-    current = start
-    while True:
-        for nbor, dist in map.adjacent(current):
-            if nbor in unvisited:
-                distance[nbor] = min(distance[nbor], distance[current] + dist)
-        unvisited.remove(current)
+    best_guess: Dict[Position, int] = defaultdict(lambda: inf)
+    best_guess[start] = guess(start)
+    while open_set:
+        current = min(open_set, key=lambda pos: best_guess[pos])
         if current == end:
             break  # found shortest path to end node
-        current = min(unvisited, key=lambda pos: distance[pos])
-        if distance[current] == inf:
-            break  # disconnected from remaining nodes
+        open_set.remove(current)
+        for nbor, dist in map.adjacent(current):
+            tentative = distance[current] + dist
+            if tentative < distance[nbor]:  # found better path to neighbor
+                distance[nbor] = tentative
+                best_guess[nbor] = tentative + guess(nbor)
+                open_set.add(nbor)
     return distance[end]
 
 
