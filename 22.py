@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import astuple, dataclass, field, replace
 from rich import print
 from typing import Iterator
 
@@ -17,289 +17,268 @@ class Pos:
 
 
 @dataclass(frozen=True)
-class Cuboid:
-    min: Pos
-    max: Pos
-
-    def __post_init__(self):
-        diff = self.max - self.min
-        if diff.x < 0 or diff.y < 0 or diff.z < 0:
-            raise ValueError(f"Cannot create {self} with negative size")
+class Volume:
+    start: Pos  # inclusive
+    end: Pos  # exclusive
 
     @classmethod
-    def parse(cls, line: str) -> Cuboid:
+    def parse(cls, line: str) -> Volume:
         components = line.rstrip().split(",")
-        min, max = [], []
+        start, end = [], []
         for component, c in zip(components, "xyz"):
             component = component.removeprefix(f"{c}=")
             c_min, c_max = [int(num) for num in component.split("..")]
             assert c_min <= c_max
-            min.append(c_min)
-            max.append(c_max)
-        return cls(Pos(*min), Pos(*max))
+            start.append(c_min)
+            end.append(c_max + 1)  # Input coords are inclusive, we are excl.
+        return cls(Pos(*start), Pos(*end))
 
-    def overlap(self, other: Cuboid) -> Cuboid:
-        return Cuboid(
+    def __post_init__(self):
+        diff = self.end - self.start
+        if diff.x <= 0 or diff.y <= 0 or diff.z <= 0:
+            raise ValueError(f"Cannot create {self} with zero/negative size")
+
+    def size(self) -> int:
+        diff = self.end - self.start
+        return diff.x * diff.y * diff.z
+
+    def __and__(self, other: Volume) -> Volume:
+        return Volume(
             Pos(
-                max(self.min.x, other.min.x),
-                max(self.min.y, other.min.y),
-                max(self.min.z, other.min.z),
+                max(self.start.x, other.start.x),
+                max(self.start.y, other.start.y),
+                max(self.start.z, other.start.z),
             ),
             Pos(
-                min(self.max.x, other.max.x),
-                min(self.max.y, other.max.y),
-                min(self.max.z, other.max.z),
+                min(self.end.x, other.end.x),
+                min(self.end.y, other.end.y),
+                min(self.end.z, other.end.z),
             ),
         )
 
-    def s_overlap(self, other: Cuboid) -> Cuboid | None:
-        with suppress(ValueError):
-            return self.overlap(other)
-        return None
+    def cut(self, flip: bool = False, **plane: int) -> tuple[Volume, Volume]:
+        """Split this volume in two, along the given dim=val plane.
 
-    def size(self):
-        diff = self.max - self.min
-        return (diff.x + 1) * (diff.y + 1) * (diff.z + 1)
-
-    def split(self, **plane: int) -> tuple[Cuboid, Cuboid]:
-        """Split this cuboid in two, along the dim=val plane.
-
-        The given val becomes part of the second/right-hand cuboid.
+        Return the volumes in coordinate order (i.e. the left/front/bottom
+        volume first, then the right/back/top volume). If 'flip' is enabled,
+        return the volumes in the opposite order.
         """
-        assert len(plane) == 1
         dim, val = plane.popitem()
-        assert dim in "xyz"
-        min_d, max_d = getattr(self.min, dim), getattr(self.max, dim)
-        if not min_d < val <= max_d:
-            raise ValueError(f"{dim} must be in ({min_d}, {max_d}]")
+        assert dim in "xyz" and not plane  # only _one_ x/y/z plane given
+        start_d, end_d = getattr(self.start, dim), getattr(self.end, dim)
+        if not start_d < val < end_d:
+            raise ValueError(f"{dim} must be in ({start_d}, {end_d}]")
 
-        a = Cuboid(self.min, replace(self.max, **{dim: val - 1}))
-        b = Cuboid(replace(self.min, **{dim: val}), self.max)
-        assert self.overlap(a) == a
-        assert self.overlap(b) == b
-        assert a.s_overlap(b) is None
-        assert self.size() == a.size() + b.size()
-        return a, b
+        a = Volume(self.start, replace(self.end, **{dim: val}))
+        b = Volume(replace(self.start, **{dim: val}), self.end)
+        return (a, b) if not flip else (b, a)
 
-    def remove(self, other: Cuboid) -> Iterator[Cuboid]:
-        """Generate new cuboids that represent self with other removed."""
+    def remove(self, other: Volume) -> Iterator[Volume]:
+        """Generate new volumes that represent 'self' with 'other' removed."""
         try:
-            overlap = self.overlap(other)
+            overlap = self & other
         except ValueError:  # Trivial case: no overlap -> nothing to remove
             yield self
             return
-        # print(f"REMOVE {other} from {self}, overlap is {overlap}")
 
-        # Split along the faces of the overlap and yield sub-cuboids that are
-        # disjoint from the overlap, until only the overlap remains
-        def flip(pair: tuple[Cuboid, Cuboid]) -> tuple[Cuboid, Cuboid]:
-            a, b = pair
-            return b, a
-
-        cuts = iter(
-            [
-                # cut functions return (disjoint, remainder) pairs
-                lambda rem: rem.split(x=overlap.min.x),
-                lambda rem: rem.split(y=overlap.min.y),
-                lambda rem: rem.split(z=overlap.min.z),
-                lambda rem: flip(rem.split(x=overlap.max.x + 1)),
-                lambda rem: flip(rem.split(y=overlap.max.y + 1)),
-                lambda rem: flip(rem.split(z=overlap.max.z + 1)),
-            ]
-        )
+        # Cut along faces of 'overlap' to yield as few cuts as possible
+        cuts = [  # Cut functions must return (cut, remainder) in that order
+            # X: Cut along left, then right, face of overlap
+            lambda remainder: remainder.cut(x=overlap.start.x),
+            lambda remainder: remainder.cut(x=overlap.end.x, flip=True),
+            # Y: Cut along front, then rear, face of overlap
+            lambda remainder: remainder.cut(y=overlap.start.y),
+            lambda remainder: remainder.cut(y=overlap.end.y, flip=True),
+            # Y: Cut along bottom, then top, face of overlap
+            lambda remainder: remainder.cut(z=overlap.start.z),
+            lambda remainder: remainder.cut(z=overlap.end.z, flip=True),
+        ]
         remainder = self
-        while remainder != overlap:  # Still more to cut
-            cut = next(cuts)
-            # print(f"  Cutting {cut} from {remainder}")
+        for cut in cuts:
             with suppress(ValueError):
-                disjoint, remainder = cut(remainder)
-                # print(f"    Yielding {disjoint}, keeping {remainder}")
-                yield disjoint
-
-        assert remainder == overlap
+                offcut, remainder = cut(remainder)
+                yield offcut
+        assert remainder == overlap  # sanity check
 
 
-class DisjointPieces:
-    # TODO: Rewrite to tree structure where we use x/y/z-planes to split pieces
-    # and limit traversal length of new additions to O(log(n)) instead of O(n).
-    def __init__(self):
-        self.pairs: list[tuple[bool, Cuboid]] = []
+@dataclass
+class Cuboid:
+    on: bool
+    vol: Volume
+    children: list[Cuboid] = field(default_factory=list)
 
-    def add(self, state: bool, piece: Cuboid) -> None:
-        pending_pieces: list[tuple[bool, Cuboid]] = [(state, piece)]
-        while pending_pieces:  # repeat until all pieces have been added
-            state, piece = pending_pieces.pop(0)
-            pairs: list[tuple[bool, Cuboid]] = []
-            # print(f"  > Adding {state} {piece} with size {piece.size()}...")
-            for i, (i_state, i_piece) in enumerate(self.pairs):
-                try:
-                    i_piece.overlap(piece)
-                except ValueError:  # pieces do not overlap
-                    pairs.append(self.pairs[i])  # no change to existing pair
-                    continue
-                if state == i_state:  # union, can skip adding overlap
-                    new_pieces = list(piece.remove(i_piece))
-                    # print(f"   Split new piece to {len(new_pieces)} at i={i}")
-                    if not new_pieces:  # piece disappeared fully into i_piece
-                        pairs.extend(self.pairs[i:])  # shortcut rest of loop
-                        break  # and stop this addition
-                    pairs.append(self.pairs[i])  # no change to existing pair
-                    piece = new_pieces.pop(0)  # keep adding largest piece
-                    # and add the other pieces later
-                    pending_pieces.extend((state, p) for p in new_pieces)
-                    continue
-                else:  # difference, must remove overlap from i_piece
-                    new_i_pieces = list(i_piece.remove(piece))
-                    # print(f"   Split existing piece into {len(new_i_pieces)}")
-                    pairs.extend((i_state, i_p) for i_p in new_i_pieces)
-                    continue
-            else:
-                # print(f"  - Append {state} {piece} with size {piece.size()}")
-                pairs.append((state, piece))  # Add remaining piece to the end
-
-            # print(f"  < Replace {len(self.pairs)} with {len(pairs)} pairs")
-            self.pairs = pairs
-
-    def __iter__(self) -> Iterator[tuple[bool, Cuboid]]:
-        return iter(self.pairs)
-
-
-def parse_line(line: str) -> tuple[bool, Cuboid]:
-    word, rest = line.split(" ", 1)
-    return True if word == "on" else False, Cuboid.parse(rest)
-
-
-pieces = DisjointPieces()
-with open("22.input") as f:
-    for line in f:
+    @classmethod
+    def parse(cls, line: str) -> Cuboid:
         word, rest = line.split(" ", 1)
-        pieces.add(word == "on", Cuboid.parse(rest))
+        return cls(word == "on", Volume.parse(rest))
+
+    @classmethod
+    def init(cls, r: int, state: bool = False) -> Cuboid:
+        return cls(state, Volume(Pos(*([-r] * 3)), Pos(*([r + 1] * 3))))
+
+    def count_on(self) -> int:
+        if self.children:  # This cuboid has been split
+            return sum(child.count_on() for child in self.children)
+        else:
+            return self.on * self.vol.size()
+
+    def toggle(self, other: Cuboid) -> None:
+        assert not other.children  # not supported
+        try:
+            overlap = self.vol & other.vol
+        except ValueError:  # no overlap
+            return
+
+        if self.children:
+            for child in self.children:
+                child.toggle(other)
+        elif other.on != self.on:  # need to (partly) switch state
+            self.children = [
+                self.__class__(self.on, vol) for vol in self.vol.remove(overlap)
+            ]
+            if self.children:
+                self.children.append(self.__class__(other.on, overlap))
+            else:  # other takes over self completely
+                assert self.vol == overlap, f"{self} vs {other}"
+                self.on = other.on
+
+
+def reboot(reactor, steps):
+    for step in steps:
+        reactor.toggle(step)
+    return reactor
+
+
+with open("22.input") as f:
+    steps = [Cuboid.parse(line) for line in f]
 
 # Part 1: How many cubes are on after the initialization procedure?
-init_cube = Cuboid(Pos(-50, -50, -50), Pos(50, 50, 50))
-init_pieces = [p for s, p in pieces if s and p.s_overlap(init_cube) is not None]
-print(sum(piece.size() for piece in init_pieces))
+print(reboot(Cuboid.init(50), steps).count_on())
 
 # Part 2: How many cubes are on after all steps?
-print(sum(piece.size() for state, piece in pieces if state))
+max_radius = max(
+    max(abs(val) for val in [*astuple(s.vol.start), *astuple(s.vol.end)])
+    for s in steps
+)
+print(reboot(Cuboid.init(max_radius), steps).count_on())
 
 
 # Unit tests
 
 
-def test_cuboid_split():
-    a = Cuboid(Pos(0, 0, 0), Pos(10, 10, 10))
+def test_Volume_cut():
+    a = Volume(Pos(0, 0, 0), Pos(10, 10, 10))
     try:
-        a.split(x=0)
+        a.cut(x=0)
     except ValueError:
         pass
     else:
         assert False
 
-    b, c = a.split(x=1)
-    assert b == Cuboid(Pos(0, 0, 0), Pos(0, 10, 10))
-    assert c == Cuboid(Pos(1, 0, 0), Pos(10, 10, 10))
+    b, c = a.cut(x=1)
+    assert b == Volume(Pos(0, 0, 0), Pos(1, 10, 10))
+    assert c == Volume(Pos(1, 0, 0), Pos(10, 10, 10))
 
-    b, c = a.split(x=10)
-    assert b == Cuboid(Pos(0, 0, 0), Pos(9, 10, 10))
-    assert c == Cuboid(Pos(10, 0, 0), Pos(10, 10, 10))
+    b, c = a.cut(x=9)
+    assert b == Volume(Pos(0, 0, 0), Pos(9, 10, 10))
+    assert c == Volume(Pos(9, 0, 0), Pos(10, 10, 10))
 
     try:
-        a.split(x=11)
+        a.cut(x=10)
     except ValueError:
         pass
     else:
         assert False
 
-    b, c = a.split(y=5)
-    assert b == Cuboid(Pos(0, 0, 0), Pos(10, 4, 10))
-    assert c == Cuboid(Pos(0, 5, 0), Pos(10, 10, 10))
+    b, c = a.cut(y=5)
+    assert b == Volume(Pos(0, 0, 0), Pos(10, 5, 10))
+    assert c == Volume(Pos(0, 5, 0), Pos(10, 10, 10))
 
-    b, c = a.split(z=5)
-    assert b == Cuboid(Pos(0, 0, 0), Pos(10, 10, 4))
-    assert c == Cuboid(Pos(0, 0, 5), Pos(10, 10, 10))
+    b, c = a.cut(z=5)
+    assert b == Volume(Pos(0, 0, 0), Pos(10, 10, 5))
+    assert c == Volume(Pos(0, 0, 5), Pos(10, 10, 10))
 
 
-def test_cuboid_remove():
-    a = Cuboid(Pos(0, 0, 0), Pos(10, 10, 10))
+def test_Volume_remove():
+    a = Volume(Pos(0, 0, 0), Pos(10, 10, 10))
 
     # Disjoint
-    assert list(a.remove(Cuboid(Pos(11, 0, 0), Pos(21, 10, 10)))) == [a]
+    assert list(a.remove(Volume(Pos(11, 0, 0), Pos(21, 10, 10)))) == [a]
 
     # Exact overlap
-    assert list(a.remove(Cuboid(Pos(0, 0, 0), Pos(10, 10, 10)))) == []
+    assert list(a.remove(Volume(Pos(0, 0, 0), Pos(10, 10, 10)))) == []
 
     # Remove last half
-    r = Cuboid(Pos(5, 0, 0), Pos(10, 10, 10))
+    r = Volume(Pos(5, 0, 0), Pos(10, 10, 10))
     result = list(a.remove(r))
     assert result == [
-        Cuboid(Pos(0, 0, 0), Pos(4, 10, 10)),
+        Volume(Pos(0, 0, 0), Pos(5, 10, 10)),
     ]
     assert sum(c.size() for c in result) + r.size() == a.size()
 
     # Remove first half
-    r = Cuboid(Pos(0, 0, 0), Pos(4, 10, 10))
+    r = Volume(Pos(0, 0, 0), Pos(5, 10, 10))
     result = list(a.remove(r))
     assert result == [
-        Cuboid(Pos(5, 0, 0), Pos(10, 10, 10)),
+        Volume(Pos(5, 0, 0), Pos(10, 10, 10)),
     ]
     assert sum(c.size() for c in result) + r.size() == a.size()
 
     # Remove last quarter
-    r = Cuboid(Pos(5, 5, 0), Pos(10, 10, 10))
+    r = Volume(Pos(5, 5, 0), Pos(10, 10, 10))
     result = list(a.remove(r))
     assert result == [
-        Cuboid(Pos(0, 0, 0), Pos(4, 10, 10)),
-        Cuboid(Pos(5, 0, 0), Pos(10, 4, 10)),
+        Volume(Pos(0, 0, 0), Pos(5, 10, 10)),
+        Volume(Pos(5, 0, 0), Pos(10, 5, 10)),
     ]
     assert sum(c.size() for c in result) + r.size() == a.size()
 
     # Remove first quarter
-    r = Cuboid(Pos(0, 0, 0), Pos(4, 4, 10))
+    r = Volume(Pos(0, 0, 0), Pos(5, 5, 10))
     result = list(a.remove(r))
     assert result == [
-        Cuboid(Pos(5, 0, 0), Pos(10, 10, 10)),
-        Cuboid(Pos(0, 5, 0), Pos(4, 10, 10)),
+        Volume(Pos(5, 0, 0), Pos(10, 10, 10)),
+        Volume(Pos(0, 5, 0), Pos(5, 10, 10)),
     ]
     assert sum(c.size() for c in result) + r.size() == a.size()
 
     # Remove last eighth
-    r = Cuboid(Pos(5, 5, 5), Pos(10, 10, 10))
+    r = Volume(Pos(5, 5, 5), Pos(10, 10, 10))
     result = list(a.remove(r))
     assert result == [
-        Cuboid(Pos(0, 0, 0), Pos(4, 10, 10)),
-        Cuboid(Pos(5, 0, 0), Pos(10, 4, 10)),
-        Cuboid(Pos(5, 5, 0), Pos(10, 10, 4)),
+        Volume(Pos(0, 0, 0), Pos(5, 10, 10)),
+        Volume(Pos(5, 0, 0), Pos(10, 5, 10)),
+        Volume(Pos(5, 5, 0), Pos(10, 10, 5)),
     ]
     assert sum(c.size() for c in result) + r.size() == a.size()
 
     # Remove first eighth
-    r = Cuboid(Pos(0, 0, 0), Pos(4, 4, 4))
+    r = Volume(Pos(0, 0, 0), Pos(5, 5, 5))
     result = list(a.remove(r))
     assert result == [
-        Cuboid(Pos(5, 0, 0), Pos(10, 10, 10)),
-        Cuboid(Pos(0, 5, 0), Pos(4, 10, 10)),
-        Cuboid(Pos(0, 0, 5), Pos(4, 4, 10)),
+        Volume(Pos(5, 0, 0), Pos(10, 10, 10)),
+        Volume(Pos(0, 5, 0), Pos(5, 10, 10)),
+        Volume(Pos(0, 0, 5), Pos(5, 5, 10)),
     ]
     assert sum(c.size() for c in result) + r.size() == a.size()
 
     # Remove from center
-    r = Cuboid(Pos(3, 3, 3), Pos(7, 7, 7))
+    r = Volume(Pos(3, 3, 3), Pos(7, 7, 7))
     result = list(a.remove(r))
     assert result == [
-        Cuboid(Pos(0, 0, 0), Pos(2, 10, 10)),
-        Cuboid(Pos(3, 0, 0), Pos(10, 2, 10)),
-        Cuboid(Pos(3, 3, 0), Pos(10, 10, 2)),
-        Cuboid(Pos(8, 3, 3), Pos(10, 10, 10)),
-        Cuboid(Pos(3, 8, 3), Pos(7, 10, 10)),
-        Cuboid(Pos(3, 3, 8), Pos(7, 7, 10)),
+        Volume(Pos(0, 0, 0), Pos(3, 10, 10)),
+        Volume(Pos(7, 0, 0), Pos(10, 10, 10)),
+        Volume(Pos(3, 0, 0), Pos(7, 3, 10)),
+        Volume(Pos(3, 7, 0), Pos(7, 10, 10)),
+        Volume(Pos(3, 3, 0), Pos(7, 7, 3)),
+        Volume(Pos(3, 3, 7), Pos(7, 7, 10)),
     ]
     assert sum(c.size() for c in result) + r.size() == a.size()
 
 
 def test():
-    test_cuboid_split()
-    test_cuboid_remove()
+    test_Volume_cut()
+    test_Volume_remove()
 
 
 test()
