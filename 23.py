@@ -8,6 +8,7 @@ from string import ascii_uppercase
 import sys
 from typing import Iterable, Iterator, NamedTuple
 
+DEBUG = False
 inf = sys.maxsize
 
 
@@ -27,7 +28,7 @@ class Burrow:
     room_index: Index  # all indices >= this are rooms
     homes: dict[str, set[Index]]
     costs: dict[str, int]
-    paths: list[list[list[Index]]]  # start -> end -> (start, ... , end]
+    paths: list[list[list[Index] | None]]  # start -> end -> (start, ... , end]
     solved: State
 
     @classmethod
@@ -46,7 +47,9 @@ class Burrow:
         return cls.preprocess(locations, amphs)
 
     @classmethod
-    def preprocess(cls, locations: list[Pos], amphs: dict[Pos, str]) -> tuple[Burrow, State]:
+    def preprocess(
+        cls, locations: list[Pos], amphs: dict[Pos, str]
+    ) -> tuple[Burrow, State]:
         locations.sort()
         rooms = {p for p in locations if p.y > 0}
         x_columns = {p.x for p in rooms}
@@ -81,16 +84,16 @@ class Burrow:
         # home. Thus we only need to consider two types of paths:
         #  - from a room into a hallway (excluding doorways)
         #  - from a hallway (excluding doorways) into a room
-        endpoints = list(chain(
+        endpoints = chain(
             product(hallways - doorways, rooms),
             product(rooms, hallways - doorways),
-        ))
+        )
         for start, end in endpoints:
             if (path := calc_path([start], end)) is not None:
                 assert len(path) >= 2  # "raw" paths include both start and end
                 paths.setdefault(start, {})[end] = path[1:]  # skip start
 
-        if True:
+        if DEBUG:
             print("Burrow:")
             print(f"  hallways - {len(hallways)}: {hallways}")
             print(f"  doorways - {len(doorways)}: {doorways}")
@@ -105,7 +108,7 @@ class Burrow:
         def set_pos_to_i(s: set[Pos]) -> set[Index]:
             return {pos_to_i(pos) for pos in s}
 
-        def build_state(amphs: dict[Pos, str]) -> State:
+        def to_state(amphs: dict[Pos, str]) -> State:
             return "".join(amphs.get(pos, ".") for pos in locations)
 
         ret = cls(
@@ -115,88 +118,86 @@ class Burrow:
             costs,
             [
                 [
-                    ([pos_to_i(p) for p in paths[start][end]] if start in paths and end in paths[start] else None) for end in locations
-                ] for start in locations
+                    (
+                        [pos_to_i(p) for p in paths[start][end]]
+                        if start in paths and end in paths[start]
+                        else None
+                    )
+                    for end in locations
+                ]
+                for start in locations
             ],
-            build_state({p: name for name, ps in homes.items() for p in ps})
+            to_state({p: name for name, ps in homes.items() for p in ps}),
         )
-        print(ret)
-        return ret, build_state(amphs)
+        return ret, to_state(amphs)
 
-    def available_paths(self, state: str, i: Index) -> Iterator[tuple[Cost, Index, Index]]:
+    def available_paths(
+        self, state: str, i: Index
+    ) -> Iterator[tuple[Cost, Index, Index]]:
         a = state[i]
-        assert a != '.'
-        for j, path in enumerate(self.paths[i]):  # all possible paths from i
-            if path is None:
-                continue  # no path
-            if any(state[k] != '.' for k in path):
-                continue  # discard paths that collide with other amphipods
-            # If the path ends in a room, it _must_ be the deepest available
-            # location in that home room, and it cannot block any foreigners.
-            if j >= self.room_index:
-                if j not in self.homes[a]:
-                    continue  # discard paths that end in foreign rooms
-                if not all(state[k] == a for k in self.homes[a] if k > j):
-                    continue  # only move home when it will not block others
-            yield (self.costs[a] * len(path)), i, j
+        assert a != "."
 
-    def all_available_paths(self, state: str) -> Iterator[tuple[Cost, Index, Index]]:
+        def interesting_paths() -> Iterator[list[Index]]:
+            if i >= self.room_index:  # outbound travel, search prebuilt paths
+                yield from (path for path in self.paths[i] if path is not None)
+            else:  # inbound travel, only one potential path
+                # There is only one possible destination: the deepest available
+                # location in this amphipod's home room, and it can only be used
+                # if no foreigners end up blocked below.
+                for j in sorted(self.homes[a], reverse=True):
+                    if state[j] == ".":  # first available location
+                        path = self.paths[i][j]
+                        assert path is not None
+                        yield path
+                        break  # done
+                    elif state[j] != a:  # foreign amphipod
+                        break  # cannot move home yet
+
+        for path in interesting_paths():
+            if not any(state[k] != "." for k in path):  # no collision
+                yield (self.costs[a] * len(path)), i, path[-1]
+
+    def all_available_paths(
+        self, state: str
+    ) -> Iterator[tuple[Cost, Index, Index]]:
         for i, c in enumerate(state):
-            if c != '.':
+            if c != ".":
                 yield from self.available_paths(state, i)
 
     def move(self, state: State, a: Index, b: Index) -> State:
         assert state[a] in self.homes
-        assert state[b] == '.'
+        assert state[b] == "."
         return "".join(
-            {a: state[b], b: state[a]}.get(i, c)
-            for i, c in enumerate(state)
+            {a: state[b], b: state[a]}.get(i, c) for i, c in enumerate(state)
         )
 
 
 def solve(lines: Iterable[str]) -> Cost:
     burrow, state = Burrow.parse_lines(lines)
-
-    def next_state(state: State) -> Iterator[tuple[Cost, State]]:
-        for cost, start, end in burrow.all_available_paths(state):
-            yield cost, burrow.move(state, start, end)
-
     queue = [(0, state)]
     seen = {state: 0}
     while queue:
-        cost, current = heappop(queue)
-        # print(f"Queue is {len(queue):6} long, considering {cost:5} / {current}")
-        if current == burrow.solved:
+        cost, state = heappop(queue)
+        if DEBUG:
+            print(f"Queue is {len(queue):6}, looking at {state} @ {cost}")
+        if state == burrow.solved:
             return cost
-        for dcost, next in next_state(current):
+
+        for dcost, start, end in burrow.all_available_paths(state):
+            new_state = burrow.move(state, start, end)
             new_cost = cost + dcost
-            if new_cost < seen.get(next, inf):
-                seen[next] = new_cost
-                heappush(queue, (new_cost, next))
-                # print(f"  Added {new_cost:5} / {next}")
+            if new_cost < seen.get(new_state, inf):
+                seen[new_state] = new_cost
+                heappush(queue, (new_cost, new_state))
+    raise RuntimeError("No solution!")
 
 
 with open("23.input") as f:
     lines = f.readlines()
 
-# lines = """\
-# #############
-# #.A.........#
-# ###.#B#C#D###
-#   #A#B#C#D#
-#   #########
-# """.split("\n")
+# Part 1: What is the least energy required to organize the amphipods?
+print(solve(lines))  # 18051
 
-# Part 1:
-print(solve(lines))
-
-# Part 2:
-# lines = lines[:3] + ["  #D#C#B#A#", "  #D#B#A#C#"] + lines[3:]
-# print(solve(lines))
-
-
-# Part 1:
-# 18051 is correct!
-
-# Part 2:
-# 50245 is correct!
+# Part 2: Repeat part 1, but with unfolded burrows
+lines = lines[:3] + ["  #D#C#B#A#", "  #D#B#A#C#"] + lines[3:]
+print(solve(lines))  # 50245
