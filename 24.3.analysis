@@ -1,0 +1,26 @@
+from rich import print
+
+inputs = [int(c) for c in "13579246899999"]
+coeff1 = [12, 11, 10, 10, -16, 14, 12, -4, 15, -7, -8, -4, -15, -8]
+coeff2 = [ 6, 12,  5, 10,   7,  0,  4, 12, 14, 13, 10, 11,   9,  9]
+
+assert len(coeff1) == len(inputs)
+assert len(coeff2) == len(inputs)
+
+z = 0
+for input, c1, c2 in zip(inputs, coeff1, coeff2):
+    cmp = z % 26 + c1
+    if c1 < 0:
+        z = int(z / 26)  # can only become zero if z < 26 and c1 < 0
+    if cmp != input:
+        z *= 26  # z can never become zero unless already zero
+        z += input + c2
+    print(input, z)
+
+# We need z == 0 at the end
+# In the above loop, 'z' largely changes in one of two ways:
+#  - decreased by a factor of 26 (if 'c1' is negative - outside of our control)
+#  - increased by a factor of 26 (if 'z % 26 + c1' does not match our input)
+# z can - at best - decrease by a factor of 26 for each digit input, hence we
+# know that if there are n digits left to input, and z is already larger than
+# 26 ** n, then it will never reach zero.
